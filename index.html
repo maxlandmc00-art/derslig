@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="tr" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LGS PRO ANALYTICS v11 - Doruk</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #0f172a; color: #f8fafc; overflow-x: hidden; }
+        .glass { background: #1e293b; border: 1px solid rgba(255,255,255,0.05); }
+        .chart-point:hover { r: 10; fill: #fff; filter: drop-shadow(0 0 12px #3b82f6); cursor: pointer; }
+        #chartTooltip {
+            display: none; position: absolute; background: rgba(15, 23, 42, 0.95); 
+            backdrop-filter: blur(8px); border: 1px solid #3b82f6;
+            padding: 14px; border-radius: 16px; font-size: 11px; z-index: 9999;
+            pointer-events: none; box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+            min-width: 160px;
+        }
+        .stat-value { color: #ffffff; text-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="h-full">
+    <div id="chartTooltip"></div>
+    
+    <div id="capture-area" class="min-h-full pb-20 px-4 md:px-10 bg-[#0f172a]">
+        <header class="py-8 flex justify-between items-center max-w-7xl mx-auto">
+            <div>
+                <h1 class="text-3xl font-black tracking-tighter text-white italic">DORUK PRO <span class="text-blue-500 text-xl">v11</span></h1>
+                <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest">LGS ANALİZ VE TAKİP SİSTEMİ</p>
+            </div>
+            <button onclick="downloadImage()" id="ssBtn" class="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-xs hover:bg-blue-500 flex items-center gap-2 transition-all">
+                <i data-lucide="download" class="w-4"></i> RAPORU İNDİR
+            </button>
+        </header>
+
+        <div id="app" class="max-w-7xl mx-auto"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3000/api/records';
+        let records = [];
+        let currentView = 'dashboard';
+        let chartMode = 'daily';
+        let showingForm = false;
+        let formType = 'daily';
+
+        const subjects = [
+            { id: 'turkce', name: 'Türkçe', color: '#3b82f6', icon: 'languages' },
+            { id: 'matematik', name: 'Matematik', color: '#ef4444', icon: 'calculator' },
+            { id: 'fen', name: 'Fen Bilimleri', color: '#22c55e', icon: 'flask-conical' },
+            { id: 'inkilap', name: 'İnkılap', color: '#f59e0b', icon: 'history' },
+            { id: 'ingilizce', name: 'İngilizce', color: '#a855f7', icon: 'globe' },
+            { id: 'din', name: 'Din', color: '#06b6d4', icon: 'book-text' }
+        ];
+
+        async function fetchRecords() {
+            try {
+                const res = await fetch(API_URL);
+                const result = await res.json();
+                records = result.data || [];
+                render();
+            } catch (err) { console.error("Hata:", err); }
+        }
+
+        function getSummary() {
+            const todayStr = new Date().toISOString().split('T')[0];
+            let todayTotal = 0;
+            let totalSoru = 0;
+            let monthlyData = {};
+
+            records.forEach(r => {
+                let rTotal = 0;
+                subjects.forEach(s => {
+                    rTotal += (parseInt(r[`${s.id}_dogru`]) || 0) + (parseInt(r[`${s.id}_yanlis`]) || 0);
+                });
+                totalSoru += rTotal;
+                if(r.date === todayStr) todayTotal += rTotal;
+                const m = new Date(r.date).toLocaleString('tr-TR', { month: 'long' });
+                monthlyData[m] = (monthlyData[m] || 0) + rTotal;
+            });
+            return { todayTotal, totalSoru, monthlyData };
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            const summary = getSummary();
+            if (showingForm) { app.innerHTML = renderForm(); lucide.createIcons(); return; }
+
+            app.innerHTML = `
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                    <div class="lg:col-span-3 space-y-4">
+                        <div class="glass p-8 rounded-[2rem] border-l-4 border-blue-500 shadow-xl">
+                            <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2">BUGÜN ÇÖZÜLEN</p>
+                            <div class="text-6xl font-black stat-value">${summary.todayTotal}</div>
+                            <div class="mt-4 h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                                <div class="h-full bg-blue-500" style="width: ${Math.min(100, (summary.todayTotal/300)*100)}%"></div>
+                            </div>
+                        </div>
+
+                        <nav class="flex flex-col gap-2">
+                            <button onclick="currentView='dashboard';render()" class="flex items-center justify-between p-5 rounded-2xl glass ${currentView==='dashboard'?'border-blue-500 bg-blue-600/10':''}">
+                                <span class="font-bold flex items-center gap-3"><i data-lucide="layout"></i> Dashboard</span>
+                            </button>
+                            <button onclick="currentView='exams';render()" class="flex items-center justify-between p-5 rounded-2xl glass ${currentView==='exams'?'border-blue-500 bg-blue-600/10':''}">
+                                <span class="font-bold flex items-center gap-3"><i data-lucide="award"></i> Denemeler</span>
+                            </button>
+                            <button onclick="currentView='daily';render()" class="flex items-center justify-between p-5 rounded-2xl glass ${currentView==='daily'?'border-blue-500 bg-blue-600/10':''}">
+                                <span class="font-bold flex items-center gap-3"><i data-lucide="calendar"></i> Günlük Takip</span>
+                            </button>
+                        </nav>
+                    </div>
+
+                    <div class="lg:col-span-9 space-y-8">
+                        ${currentView === 'dashboard' ? `
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div class="glass p-8 rounded-[2.5rem]">
+                                    <h3 class="text-sm font-black text-slate-400 uppercase mb-4 italic">Aylık Soru Analizi</h3>
+                                    <div class="space-y-4">
+                                        ${Object.entries(summary.monthlyData).map(([m, t]) => `
+                                            <div class="space-y-1">
+                                                <div class="flex justify-between text-[10px] font-black uppercase"><span>${m}</span><span>${t} Soru</span></div>
+                                                <div class="h-2 bg-slate-800 rounded-full overflow-hidden"><div class="h-full bg-blue-500" style="width:${Math.min(100, (t/5000)*100)}%"></div></div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                                <div class="glass p-8 rounded-[2.5rem]">
+                                     <h3 class="text-sm font-black text-slate-400 uppercase mb-4 italic">Ders Bazlı Soru</h3>
+                                     <div class="grid grid-cols-2 gap-4">
+                                        ${subjects.map(s => {
+                                            const count = records.reduce((a,r)=>a+(parseInt(r[`${s.id}_dogru`])||0)+(parseInt(r[`${s.id}_yanlis`])||0),0);
+                                            return `
+                                            <div class="bg-slate-800/50 p-4 rounded-2xl border-b-2" style="border-color:${s.color}">
+                                                <div class="text-xl font-black" style="color:${s.color}">${count}</div>
+                                                <div class="text-[9px] font-bold uppercase text-slate-500">${s.name}</div>
+                                            </div>`;
+                                        }).join('')}
+                                     </div>
+                                </div>
+                            </div>
+
+                            <div class="glass p-8 rounded-[3.5rem]">
+                                <div class="flex justify-between items-center mb-10">
+                                    <h3 class="text-sm font-black uppercase text-slate-400 italic">Performans Analizi</h3>
+                                    <div class="flex bg-slate-800 p-1.5 rounded-2xl">
+                                        <button onclick="chartMode='daily';render()" class="px-5 py-2 rounded-xl text-[10px] font-black transition-all ${chartMode==='daily'?'bg-blue-600 text-white shadow-lg':'text-slate-400'}">GÜNLÜK SORU</button>
+                                        <button onclick="chartMode='exam';render()" class="px-5 py-2 rounded-xl text-[10px] font-black transition-all ${chartMode==='exam'?'bg-blue-600 text-white shadow-lg':'text-slate-400'}">DENEMELER</button>
+                                    </div>
+                                </div>
+                                <div class="h-80 w-full">${renderMainChart()}</div>
+                            </div>
+                        ` : renderListView()}
+                    </div>
+                </div>`;
+            lucide.createIcons();
+        }
+
+        function renderMainChart() {
+            const data = records.filter(r => r.type === chartMode).sort((a,b)=>new Date(a.date)-new Date(b.date)).slice(-12);
+            if(data.length < 2) return `<div class="h-full flex items-center justify-center text-slate-600 italic font-bold">Grafik için veri girişi yapın...</div>`;
+            
+            const w = 1000, h = 300;
+            
+            const plotData = data.map(r => {
+                let total = 0;
+                let details = [];
+                subjects.forEach(s => {
+                    const d = parseInt(r[`${s.id}_dogru`]) || 0;
+                    const y = parseInt(r[`${s.id}_yanlis`]) || 0;
+                    const net = Math.max(0, d - (y / 3));
+                    const soru = d + y;
+                    
+                    if(soru > 0) {
+                        details.push({ name: s.name, color: s.color, val: chartMode === 'exam' ? net.toFixed(1) + ' Net' : soru + ' Soru' });
+                    }
+                    total += (chartMode === 'exam') ? net : soru;
+                });
+                return { total, details, label: r.exam_name || r.date };
+            });
+
+            const maxVal = Math.max(...plotData.map(p => p.total), chartMode === 'exam' ? 90 : 200);
+
+            const pts = plotData.map((p, i) => ({
+                x: i * (w/(plotData.length-1)),
+                y: h - (p.total/maxVal * (h-60)) - 30,
+                ...p
+            }));
+
+            return `
+                <svg viewBox="0 0 ${w} ${h}" class="w-full h-full overflow-visible">
+                    <path d="${pts.map((p,i)=>(i===0?'M':'L')+` ${p.x} ${p.y}`).join(' ')}" fill="none" stroke="#3b82f6" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+                    ${pts.map((p)=>`
+                        <circle class="chart-point" cx="${p.x}" cy="${p.y}" r="8" fill="#0f172a" stroke="#3b82f6" stroke-width="4" 
+                        onmouseover="showAdvancedTip(event, ${JSON.stringify(p).replace(/"/g, '&quot;')})" 
+                        onmouseout="hideTip()" />
+                    `).join('')}
+                </svg>`;
+        }
+
+        function showAdvancedTip(e, data) {
+            const t = document.getElementById('chartTooltip');
+            let rows = data.details.map(d => `
+                <div class="flex justify-between gap-4 mb-1 items-center">
+                    <span class="flex items-center gap-1.5 font-bold text-slate-300"><span class="w-1.5 h-1.5 rounded-full" style="background:${d.color}"></span> ${d.name}</span>
+                    <span class="text-white font-bold">${d.val}</span>
+                </div>
+            `).join('');
+
+            t.innerHTML = `
+                <div class="font-black text-blue-400 uppercase text-[10px] mb-2 border-b border-white/10 pb-1">${data.label}</div>
+                <div class="space-y-1">${rows}</div>
+                <div class="mt-2 pt-1 border-t border-white/10 flex justify-between font-black text-white text-[12px]">
+                    <span>TOPLAM:</span>
+                    <span>${data.total.toFixed(1)} ${chartMode==='exam'?'NET':'SORU'}</span>
+                </div>
+            `;
+            t.style.display = 'block';
+            t.style.left = (e.pageX + 20) + 'px';
+            t.style.top = (e.pageY - 50) + 'px';
+        }
+
+        function hideTip() { document.getElementById('chartTooltip').style.display = 'none'; }
+
+        function renderListView() {
+            const filtered = records.filter(r => r.type === (currentView === 'exams' ? 'exam' : 'daily'));
+            return `
+                <div class="flex justify-between items-center mb-8">
+                    <h2 class="text-2xl font-black uppercase italic">${currentView==='exams'?'Sınavlar':'Çalışmalar'}</h2>
+                    <button onclick="formType='${currentView==='exams'?'exam':'daily'}';showingForm=true;render()" class="bg-blue-600 px-8 py-4 rounded-2xl font-black text-sm">YENİ EKLE</button>
+                </div>
+                <div class="grid grid-cols-1 gap-4">
+                    ${filtered.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(r => `
+                        <div class="glass p-6 rounded-3xl flex justify-between items-center border-l-4 ${r.type==='exam'?'border-purple-500':'border-blue-500'}">
+                            <div><h4 class="font-black text-white text-lg">${r.exam_name || 'Soru Çözümü'}</h4><p class="text-[10px] text-slate-500 font-bold">${r.date}</p></div>
+                            <button onclick="deleteRecord('${r.id}')" class="bg-red-500/10 text-red-500 p-3 rounded-2xl hover:bg-red-500 transition"><i data-lucide="trash-2" class="w-5"></i></button>
+                        </div>
+                    `).join('')}
+                </div>`;
+        }
+
+        function renderForm() {
+            return `
+                <div class="max-w-xl mx-auto py-10">
+                    <form onsubmit="saveEntry(event)" class="glass p-10 rounded-[3rem] border-t-8 ${formType==='exam'?'border-purple-600':'border-blue-600'} shadow-2xl">
+                        <h2 class="text-3xl font-black mb-8 uppercase italic">${formType==='exam'?'Yeni Deneme':'Soru Girişi'}</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                            <input type="date" name="date" required value="${new Date().toISOString().split('T')[0]}" class="bg-slate-800 p-5 rounded-2xl outline-none font-bold">
+                            ${formType==='exam'?'<input type="text" name="exam_name" placeholder="Deneme Adı" required class="bg-slate-800 p-5 rounded-2xl outline-none font-bold">':''}
+                        </div>
+                        <div class="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto mb-8">
+                            ${subjects.map(s => `
+                                <div class="flex items-center justify-between bg-slate-800/40 p-4 rounded-2xl">
+                                    <span class="font-bold text-xs uppercase text-slate-400">${s.name}</span>
+                                    <div class="flex gap-2">
+                                        <input type="number" name="${s.id}_dogru" placeholder="D" class="w-16 p-3 bg-slate-950 rounded-xl text-center text-green-400 font-bold">
+                                        <input type="number" name="${s.id}_yanlis" placeholder="Y" class="w-16 p-3 bg-slate-950 rounded-xl text-center text-red-400 font-bold">
+                                    </div>
+                                </div>`).join('')}
+                        </div>
+                        <div class="flex gap-4">
+                            <button type="submit" class="flex-1 ${formType==='exam'?'bg-purple-600':'bg-blue-600'} py-5 rounded-3xl font-black text-xl">KAYDET</button>
+                            <button type="button" onclick="showingForm=false;render()" class="px-8 bg-slate-800 rounded-3xl font-bold">İPTAL</button>
+                        </div>
+                    </form>
+                </div>`;
+        }
+
+        async function saveEntry(e) {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(e.target));
+            data.id = `record_${Date.now()}`;
+            data.type = formType;
+            await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+            showingForm = false;
+            fetchRecords();
+        }
+
+        async function deleteRecord(id) { if(confirm('Sileyim mi?')) { await fetch(`${API_URL}/${id}`, { method: 'DELETE' }); fetchRecords(); } }
+
+        async function downloadImage() {
+            const btn = document.getElementById('ssBtn'); btn.innerText = "...";
+            const canvas = await html2canvas(document.getElementById('capture-area'), { backgroundColor: "#0f172a", scale: 2 });
+            const a = document.createElement('a'); a.download = 'Doruk_LGS_Rapor.png'; a.href = canvas.toDataURL(); a.click();
+            btn.innerHTML = '<i data-lucide="download" class="w-4"></i> RAPORU İNDİR'; lucide.createIcons();
+        }
+
+        fetchRecords();
+    </script>
+</body>
+</html>
